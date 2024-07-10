@@ -1,10 +1,8 @@
 import psutil
 import time
-import tkinter as tk
+import FreeSimpleGUI as sg
 from threading import Thread, Event
 from plyer import notification
-import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -12,26 +10,26 @@ def get_network_usage():
     net_io = psutil.net_io_counters()
     return net_io.bytes_sent, net_io.bytes_recv
 
-def update_usage_label(label_sent, label_recv, start_sent, start_recv, data_limit_var, stop_event, style_normal, style_alert, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas):
+def update_usage_label(window, start_sent, start_recv, data_limit_var, stop_event, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas):
     while not stop_event.is_set():
         current_sent, current_recv = get_network_usage()
         sent = current_sent - start_sent
         recv = current_recv - start_recv
-        label_sent.config(text=f"Data sent: {sent / (1024 * 1024):.2f} MB")
-        label_recv.config(text=f"Data received: {recv / (1024 * 1024):.2f} MB")
+        window['-SENT-'].update(f"Data sent: {sent / (1024 * 1024):.2f} MB")
+        window['-RECV-'].update(f"Data received: {recv / (1024 * 1024):.2f} MB")
         
         total_data = (sent + recv) / (1024 * 1024)  # Total data in MB
-        data_limit = float(data_limit_var.get())
+        data_limit = float(data_limit_var)
         
         if recv / (1024 * 1024) >= data_limit:
-            label_recv.config(style=style_alert)
+            window['-RECV-'].update(text_color='red')
             notification.notify(
                 title="Data Usage Alert",
                 message=f"Data received has reached {recv / (1024 * 1024):.2f} MB",
                 timeout=10
             )
         else:
-            label_recv.config(style=style_normal)
+            window['-RECV-'].update(text_color='black')
         
         # Update graph data
         x_data.append(time.time())
@@ -52,9 +50,9 @@ def update_usage_label(label_sent, label_recv, start_sent, start_recv, data_limi
         
         time.sleep(1)
 
-def start_monitoring(label_sent, label_recv, start_sent, start_recv, data_limit_var, stop_event, style_normal, style_alert, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas):
+def start_monitoring(window, start_sent, start_recv, data_limit_var, stop_event, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas):
     stop_event.clear()
-    thread = Thread(target=update_usage_label, args=(label_sent, label_recv, start_sent, start_recv, data_limit_var, stop_event, style_normal, style_alert, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas))
+    thread = Thread(target=update_usage_label, args=(window, start_sent, start_recv, data_limit_var, stop_event, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas))
     thread.daemon = True
     thread.start()
     return thread
@@ -66,36 +64,19 @@ def main():
     start_sent, start_recv = get_network_usage()
     stop_event = Event()
 
-    root = ttk.Window(themename="darkly")  # Set the theme
-    root.title("Network Usage Monitor")
-    root.geometry("800x600")  # Set the initial size of the window
+    sg.theme('DarkBlue')
+    
+    layout = [
+        [sg.Text("Network Usage Monitor", font=("Helvetica", 16))],
+        [sg.Text("Data sent: 0.00 MB", key='-SENT-', font=("Helvetica", 16))],
+        [sg.Text("Data received: 0.00 MB", key='-RECV-', font=("Helvetica", 16))],
+        [sg.Text("Set Data Limit (MB):", font=("Helvetica", 16))],
+        [sg.InputText("100", key='-LIMIT-', font=("Helvetica", 16))],
+        [sg.Button("Start", key='-START-', font=("Helvetica", 16)), sg.Button("Stop", key='-STOP-', font=("Helvetica", 16))],
+        [sg.Canvas(key='-CANVAS-')]
+    ]
 
-    font_settings = ("Helvetica", 16)  # Set the font and size
-
-    style_normal = "TLabel"
-    style_alert = "Alert.TLabel"
-
-    style = ttk.Style()
-    style.configure(style_alert, foreground="red")
-
-    label_sent = ttk.Label(root, text="Data sent: 0.00 MB", font=font_settings)
-    label_sent.pack(pady=10)
-
-    label_recv = ttk.Label(root, text="Data received: 0.00 MB", font=font_settings)
-    label_recv.pack(pady=10)
-
-    data_limit_var = tk.StringVar(value="100")  # Default data limit
-    label_limit = ttk.Label(root, text="Set Data Limit (MB):", font=font_settings)
-    label_limit.pack(pady=10)
-    entry_limit = ttk.Entry(root, textvariable=data_limit_var, font=font_settings)
-    entry_limit.pack(pady=10)
-
-    # Start and Stop buttons
-    start_button = ttk.Button(root, text="Start", command=lambda: start_monitoring(label_sent, label_recv, start_sent, start_recv, data_limit_var, stop_event, style_normal, style_alert, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas))
-    start_button.pack(pady=10)
-
-    stop_button = ttk.Button(root, text="Stop", command=lambda: stop_monitoring(stop_event))
-    stop_button.pack(pady=10)
+    window = sg.Window("Network Usage Monitor", layout, finalize=True)
 
     # Create a figure for the graph
     fig = Figure(figsize=(5, 4), dpi=100)
@@ -116,11 +97,21 @@ def main():
     ax.legend()
 
     # Create a canvas to display the graph
-    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas = FigureCanvasTkAgg(fig, master=window['-CANVAS-'].TKCanvas)
     canvas.draw()
     canvas.get_tk_widget().pack(pady=20)
 
-    root.mainloop()
+    while True:
+        event, values = window.read()
+        if event == sg.WIN_CLOSED:
+            break
+        elif event == '-START-':
+            data_limit_var = values['-LIMIT-']
+            start_monitoring(window, start_sent, start_recv, data_limit_var, stop_event, x_data, y_data_sent, y_data_recv, line_sent, line_recv, canvas)
+        elif event == '-STOP-':
+            stop_monitoring(stop_event)
+
+    window.close()
 
 if __name__ == "__main__":
     main()
