@@ -1,1 +1,1 @@
-pip install psutil plyer matplotlib ttkbootstrap
+pip install psutil plyer matplotlib ttkbootstrap FreeSimpleGUI
